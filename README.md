@@ -34,6 +34,11 @@
 ## 参考项目
 本项目参考自 [Zygisk-Il2CppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper/)
 
+## 使用的开源项目
+本项目使用了以下开源项目/库 (开源许可详见项目 licenses 目录)：
+- [Zygisk-Il2CppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper/)
+- [local_cxa_atexit_finalize_impl](https://github.com/5ec1cff/local_cxa_atexit_finalize_impl/)
+
 ## 其他说明
 1. 如已安装 Xposed 模块且非模拟器推荐使用 Xposed 模块 [Xposed-SGameHook](https://github.com/huajiqaq/Xposed-SGameHook/)
 2. 如果想脱离 Zygisk 单独加载使用，可参考 [frida_android_x86_64_so_loader](https://github.com/huajiqaq/frida_android_x86_64_so_loader/)

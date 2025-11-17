@@ -4,6 +4,6 @@ ext {
     moduleName = "SGameHook"
     moduleAuthor = "huajiqaq"
     moduleDescription = "王者自定义名片/海报模块 请前往模块发布页 https://github.com/huajiqaq/Zygisk-SGameHook 查看更多详情"
-    moduleVersion = "v1.0.1"
-    moduleVersionCode = 2
+    moduleVersion = "v1.0.2"
+    moduleVersionCode = 3
 }
