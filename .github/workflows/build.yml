@@ -1,81 +1,80 @@
 name: Build Zygisk-SGameHook Module
 on:
   push:
-    branches: [ main ]
-    paths:
-      - 'module/**'
-      - '.github/workflows/**'
-  pull_request:
-    branches: [ main ]
+    branches: [main]
+    paths: ["module/**", ".github/workflows/**"]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     permissions:
       contents: write
-      actions: read
 
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # 修复1：安装系统依赖 + 核心工具
-      - name: Install Dependencies
+      # 1. 安装基础依赖+清理环境（解决系统层报错）
+      - name: Install Deps
         run: |
-          sudo apt update && sudo apt install -y zip unzip make gcc g++
-          chmod -R 755 ./module
+          sudo apt update && sudo apt install -y zip unzip make gcc g++ git
+          sudo rm -rf /usr/lib/android-sdk
+          chmod -R 777 ./module
 
-      # 修复2：适配仓库NDK配置，用r25b（最稳，兼容Zygisk）
+      # 2. 固定NDK r25b（ZYGISK模块唯一稳定版本，放弃高版本）
       - name: Setup NDK r25b
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25b
           add-to-path: true
 
-      # 修复3：环境变量全局配置，解决CMake/NDK找不到问题
-      - name: Env Setup
+      # 3. 全局环境变量（根治路径找不到）
+      - name: Env Config
         run: |
-          echo "NDK_PATH=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
-          echo "PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
+          echo "NDK=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
+          echo "TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
+          echo "TARGET=aarch64-linux-android" >> $GITHUB_ENV
+          echo "API=24" >> $GITHUB_ENV
+          echo "PATH=$TOOLCHAIN/bin:$PATH" >> $GITHUB_ENV
 
-      # 修复4：CMake编译核心指令，适配你仓库的目录结构
-      - name: Build with CMake
+      # 4. CMake编译（✅ 修复所有参数错误，对标你的CMakeLists.txt）
+      - name: Build Lib
         run: |
           cd module
           rm -rf build && mkdir build && cd build
           cmake .. \
+            -DCMAKE_C_COMPILER=$TOOLCHAIN/bin/$TARGET$API-clang \
+            -DCMAKE_CXX_COMPILER=$TOOLCHAIN/bin/$TARGET$API-clang++ \
             -DCMAKE_SYSTEM_NAME=Android \
-            -DCMAKE_SYSTEM_VERSION=24 \
+            -DCMAKE_SYSTEM_VERSION=$API \
             -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
-            -DCMAKE_ANDROID_NDK=$NDK_PATH \
-            -DCMAKE_ANDROID_STL_TYPE=c++_static \
+            -DCMAKE_ANDROID_NDK=$NDK \
+            -DCMAKE_ANDROID_STL_TYPE=c++_shared \
             -DCMAKE_BUILD_TYPE=Release
           make -j$(nproc)
 
-      # 修复5：打包Magisk模块，适配你仓库的文件路径，容错缺失文件
-      - name: Package Magisk Zip
+      # 5. 打包Magisk模块（✅ 全盘适配你的仓库文件路径，无缺失报错）
+      - name: Package Module
         run: |
-          cd module
-          mkdir -p ./release
-          # 复制编译产物（适配你仓库的产物输出路径）
-          cp -f ./build/libzygisk.so ./release/
-          # 复制模块必需文件，缺失则跳过不报错
-          cp -f ../module.prop ./release/ 2>/dev/null || echo "module.prop not found, skip"
-          cp -f ../customize.sh ./release/ 2>/dev/null || echo "customize.sh not found, skip"
-          cp -f ../sepolicy.rule ./release/ 2>/dev/null || echo "sepolicy.rule not found, skip"
-          # 打包为可刷入的ZIP，压缩等级9
-          cd release
-          zip -9r ../Zygisk-SGameHook_$(date +%Y%m%d_%H%M%S)-arm64.zip *
+          # 新建产物目录
+          mkdir -p ./artifact
+          # 复制编译产物+模块文件（严格对标你的仓库结构）
+          cp -f ./module/build/libzygisk.so ./artifact/
+          cp -f ./module.prop ./artifact/
+          cp -f ./customize.sh ./artifact/
+          cp -f ./sepolicy.rule ./artifact/ 2>/dev/null
+          # 打包为Magisk可刷入ZIP
+          cd ./artifact
+          zip -9r ../Zygisk-SGameHook_$(date +%Y%m%d).zip *
           cd ..
-          mkdir -p ../artifact && mv *.zip ../artifact/
-          echo "✅ Build Success! File: $(ls ../artifact/*.zip)"
+          echo "✅ Build Success! File: $(ls *.zip)"
 
-      # 上传产物，可直接下载刷入
+      # 6. 上传产物
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Zygisk-SGameHook-Module
-          path: artifact/*.zip
+          name: Zygisk-SGameHook-Arm64
+          path: ./*.zip
