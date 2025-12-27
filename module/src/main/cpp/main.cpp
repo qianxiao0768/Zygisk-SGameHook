@@ -11,6 +11,8 @@
 #include "zygisk.hpp"
 #include "game.h"
 #include "log.h"
+#include <dlfcn.h>
+#include <stdio.h>
 
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
