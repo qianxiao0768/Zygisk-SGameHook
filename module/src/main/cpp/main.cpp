@@ -65,10 +65,10 @@ public:
 private:
     Api *api;
     JNIEnv *env;
-    bool enable_hack;
-    char *game_data_dir;
-    void *data;
-    size_t length;
+    bool enable_hack{false};
+    char *game_data_dir{nullptr};
+    void *data{nullptr};
+    size_t length{0};
 
     void preSpecialize(const char *package_name, const char *app_data_dir) {
         // 原生逻辑：匹配体验服+正式服包名（GamePackageName/GamePackageNameCe）
@@ -98,17 +98,21 @@ private:
             // ====================== 新增：初始化海报目录 + Hook fopen ======================
             g_poster_dir = new char[strlen(app_data_dir) + strlen(POSTER_DIR_SUFFIX) + 1];
             snprintf(g_poster_dir, strlen(app_data_dir) + strlen(POSTER_DIR_SUFFIX) + 1, "%s%s", app_data_dir, POSTER_DIR_SUFFIX);
-            api->hookFunction((void *)fopen, (void *)my_fopen, (void **)&old_fopen);
+            // 使用 zygisk v2 提供的 pltHookRegister + pltHookCommit 来替代已移除的 hookFunction
+            api->pltHookRegister(".*", "fopen", (void *)my_fopen, (void **)&old_fopen);
+            api->pltHookCommit();
             LOGI("Init poster dir: %s, hook fopen success", g_poster_dir);
             // ==============================================================================
 
-#if defined(__i386__)
+#if defined(__arm__)
             auto path = "zygisk/armeabi-v7a.so";
-#endif
-#if defined(__x86_64__)
+#elif defined(__aarch64__)
             auto path = "zygisk/arm64-v8a.so";
+#else
+            const char *path = nullptr;
 #endif
-#if defined(__i386__) || defined(__x86_64__)
+
+#if defined(__arm__) || defined(__aarch64__)
             int dirfd = api->getModuleDir();
             int fd = openat(dirfd, path, O_RDONLY);
             if (fd != -1) {
