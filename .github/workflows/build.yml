@@ -1,0 +1,44 @@
+name: Android Build
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Set up Android SDK & NDK
+        uses: android-actions/setup-android@v2
+        with:
+          api-level: 33
+          ndk-version: '25.2.9519653'
+
+      - name: Build (Gradle)
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean assembleDebug --no-daemon
+
+      - name: Upload module build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: module-build
+          path: module/build/**
