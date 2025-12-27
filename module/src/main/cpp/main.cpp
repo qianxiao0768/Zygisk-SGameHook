@@ -13,6 +13,7 @@
 #include "log.h"
 #include <dlfcn.h>
 #include <stdio.h>
+#include <cstdio>
 
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
