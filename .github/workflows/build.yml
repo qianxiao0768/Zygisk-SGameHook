@@ -1,80 +1,74 @@
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
-    with:
-      fetch-depth: 0
+name: Build Zygisk-SGameHook Module
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'module/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # 手动触发编译
 
-  - name: Set up Java 17
-    uses: actions/setup-java@v4
-    with:
-      distribution: 'temurin'
-      java-version: '17'
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      actions: read
 
-  - name: Cache Gradle
-    uses: actions/cache@v4
-    with:
-      path: |
-        ~/.gradle/caches
-        ~/.gradle/wrapper
-      key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties') }}-${{ matrix.buildType }}
-      restore-keys: |
-        ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties') }}-
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-  - name: Cache native .cxx build
-    uses: actions/cache@v4
-    with:
-      path: module/.cxx
-      key: ${{ runner.os }}-cxx-${{ matrix.buildType }}-${{ hashFiles('module/src/main/cpp/CMakeLists.txt') }}
-      restore-keys: |
-        ${{ runner.os }}-cxx-${{ matrix.buildType }}-
+      # 关键修复1：配置NDK r26b（适配你的CMake版本，Zygisk模块最佳版本）
+      - name: Setup Android NDK & SDK
+        uses: android-actions/setup-android@v3
+        with:
+          ndk-version: 26.1.10909125
+          cmake-version: 3.22.1
 
-  - name: Set up Android SDK, NDK and CMake
-    uses: android-actions/setup-android@v2
-    with:
-      api-level: 33
-      build-tools: 33.0.2
-      ndk-version: '25.2.9519653'      # 与 module/build.gradle 保持一致
-      cmake-version: '3.22.1'          # 与 module/build.gradle 指定版本一致
-      components: |
-        platform-tools
-        cmdline-tools;latest
+      # 关键修复2：配置环境变量，关联NDK/CMake
+      - name: Env Config
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
+          echo "CMAKE_HOME=$ANDROID_HOME/cmake/3.22.1/bin" >> $GITHUB_ENV
+          echo "$CMAKE_HOME" >> $GITHUB_PATH
+          echo "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          chmod -R 777 ./module
+          echo "Env setup done!"
 
-  - name: Show env and ndk/cmake versions (debug)
-    run: |
-      echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-      $ANDROID_SDK_ROOT/cmake/3.22.1/bin/cmake --version || true
-      $ANDROID_SDK_ROOT/ndk/25.2.9519653/ndk-build --version || true
-      java -version
+      # 关键修复3：使用CMake编译（你的项目原生编译方式，替代错误的assembleRelease）
+      - name: Build Module (CMake)
+        run: |
+          cd module
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
 
-  - name: Ensure gradlew is executable
-    run: chmod +x ./gradlew
+      # 关键修复4：打包为Magisk可刷入的ZIP模块（自动打包，无需手动处理）
+      - name: Package Magisk Module
+        run: |
+          cd module
+          mkdir -p out
+          # 复制编译产物+模块配置文件
+          cp build/libs/libzygisk.so ./out/
+          cp module.prop ./out/
+          cp customize.sh ./out/
+          cp sepolicy.rule ./out/ 2>/dev/null || true
+          # 打包为zip（Magisk标准格式）
+          zip -r Zygisk-SGameHook_$(date +%Y%m%d_%H%M%S).zip ./out/*
+          mkdir -p ../release && mv *.zip ../release/
+          echo "Build success! Module file: $(ls ../release/*.zip)"
 
-  - name: Build (Gradle native + java)
-    run: |
-      echo "Building module (variant=${{ matrix.buildType }})"
-      ./gradlew --no-daemon --parallel --max-workers=2 clean assemble${{ matrix.buildType }} \
-        -Pandroid.injected.build.api=33 || ( echo 'Gradle build failed'; exit 1 )
-    env:
-      JAVA_TOOL_OPTIONS: -Xmx2g
-
-  - name: Collect native libs & magisk zip
-    run: |
-      mkdir -p build-artifacts
-      # 把 module 产物（可能的 zip）收集
-      if [ -d module/out ]; then
-        cp -r module/out build-artifacts/ || true
-      fi
-      # module/build 可能包含 outputs/intermediates（按 module/build.gradle）
-      if [ -d module/build ]; then
-        cp -r module/build build-artifacts/ || true
-      fi
-      # C++ 构建残留供调试
-      if [ -d module/.cxx ]; then
-        cp -r module/.cxx build-artifacts/ || true
-      fi
-
-  - name: Upload build artifacts
-    uses: actions/upload-artifact@v4
-    with:
-      name: module-${{ matrix.buildType }}-artifacts
-      path: build-artifacts/**
+      # 上传编译产物（可直接下载刷入）
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zygisk-SGameHook-Module-Arm64
+          path: release/*.zip
