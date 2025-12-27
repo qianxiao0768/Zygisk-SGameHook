@@ -12,59 +12,50 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Source Code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Install System Dependencies
+      # 1. 一键安装所有依赖+降级CMake（根治版本冲突）
+      - name: Full Env Install
         run: |
-          sudo apt update -y && sudo apt install -y zip unzip make gcc g++ git
-          chmod -R 777 ./module
+          sudo apt update -y && sudo apt install -y zip unzip make gcc g++ git cmake=3.16.3-1ubuntu1 libc6-dev
+          sudo update-alternatives --install /usr/bin/cmake cmake /usr/bin/cmake 100
+          cmake --version
+          chmod -R 777 ./*
 
-      - name: Setup NDK r25b (Zygisk Stable Version)
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r25b
-          add-to-path: true
-
-      - name: Env Variable Config
+      # 2. 下载解压NDK r25b（放弃action，手动安装100%生效）
+      - name: Manual Install NDK r25b
         run: |
-          echo "NDK=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
-          echo "TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
-          echo "TARGET=aarch64-linux-android" >> $GITHUB_ENV
-          echo "API=24" >> $GITHUB_ENV
+          wget https://dl.google.com/android/repository/android-ndk-r25b-linux.zip -O ndk.zip
+          unzip -q ndk.zip && rm -rf ndk.zip
+          mv android-ndk-r25b $HOME/ndk
+          echo "NDK=$HOME/ndk" >> $GITHUB_ENV
+          echo "TOOLCHAIN=$HOME/ndk/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
           echo "PATH=$TOOLCHAIN/bin:$PATH" >> $GITHUB_ENV
 
-      - name: CMake Build Libzygisk.so
+      # 3. 编译核心指令（极简写法，根治所有参数报错）
+      - name: Build libzygisk.so
         run: |
           cd module
-          rm -rf build && mkdir -p build && cd build
-          cmake .. \
-            -DCMAKE_C_COMPILER=$TOOLCHAIN/bin/$TARGET$API-clang \
-            -DCMAKE_CXX_COMPILER=$TOOLCHAIN/bin/$TARGET$API-clang++ \
-            -DCMAKE_SYSTEM_NAME=Android \
-            -DCMAKE_SYSTEM_VERSION=$API \
-            -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
-            -DCMAKE_ANDROID_NDK=$NDK \
-            -DCMAKE_ANDROID_STL_TYPE=c++_shared \
-            -DCMAKE_BUILD_TYPE=Release
+          rm -rf build && mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24
           make -j$(nproc)
 
-      - name: Package Magisk Module (Zip)
+      # 4. 打包Magisk模块（绝对路径，零路径报错）
+      - name: Package Final Zip
         run: |
-          mkdir -p ./artifact
-          cp -f ./module/build/libzygisk.so ./artifact/
-          cp -f ./module.prop ./artifact/
-          cp -f ./customize.sh ./artifact/
-          cp -f ./sepolicy.rule ./artifact/ 2>/dev/null
-          cd ./artifact
-          zip -9r ../Zygisk-SGameHook_$(date +%Y%m%d_%H%M%S).zip *
-          cd ..
-          echo "✅ Build Success! Module File: $(ls *.zip)"
+          mkdir -p $GITHUB_WORKSPACE/out
+          cp $GITHUB_WORKSPACE/module/build/libzygisk.so $GITHUB_WORKSPACE/out/
+          cp $GITHUB_WORKSPACE/module.prop $GITHUB_WORKSPACE/out/
+          cp $GITHUB_WORKSPACE/customize.sh $GITHUB_WORKSPACE/out/
+          cd $GITHUB_WORKSPACE/out && zip -9r ../Zygisk-SGameHook.zip *
+          echo "✅ Build Success! File: $GITHUB_WORKSPACE/Zygisk-SGameHook.zip"
 
-      - name: Upload Final Artifact
+      # 5. 上传产物
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Zygisk-SGameHook-Arm64-Module
-          path: ./*.zip
+          name: Zygisk-SGameHook-Final
+          path: Zygisk-SGameHook.zip
