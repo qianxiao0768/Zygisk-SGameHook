@@ -7,32 +7,28 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout
+      - name: Checkout Source Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # 1. 安装基础依赖+清理环境（解决系统层报错）
-      - name: Install Deps
+      - name: Install System Dependencies
         run: |
-          sudo apt update && sudo apt install -y zip unzip make gcc g++ git
-          sudo rm -rf /usr/lib/android-sdk
+          sudo apt update -y && sudo apt install -y zip unzip make gcc g++ git
           chmod -R 777 ./module
 
-      # 2. 固定NDK r25b（ZYGISK模块唯一稳定版本，放弃高版本）
-      - name: Setup NDK r25b
+      - name: Setup NDK r25b (Zygisk Stable Version)
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25b
           add-to-path: true
 
-      # 3. 全局环境变量（根治路径找不到）
-      - name: Env Config
+      - name: Env Variable Config
         run: |
           echo "NDK=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
           echo "TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
@@ -40,11 +36,10 @@ jobs:
           echo "API=24" >> $GITHUB_ENV
           echo "PATH=$TOOLCHAIN/bin:$PATH" >> $GITHUB_ENV
 
-      # 4. CMake编译（✅ 修复所有参数错误，对标你的CMakeLists.txt）
-      - name: Build Lib
+      - name: CMake Build Libzygisk.so
         run: |
           cd module
-          rm -rf build && mkdir build && cd build
+          rm -rf build && mkdir -p build && cd build
           cmake .. \
             -DCMAKE_C_COMPILER=$TOOLCHAIN/bin/$TARGET$API-clang \
             -DCMAKE_CXX_COMPILER=$TOOLCHAIN/bin/$TARGET$API-clang++ \
@@ -56,25 +51,20 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           make -j$(nproc)
 
-      # 5. 打包Magisk模块（✅ 全盘适配你的仓库文件路径，无缺失报错）
-      - name: Package Module
+      - name: Package Magisk Module (Zip)
         run: |
-          # 新建产物目录
           mkdir -p ./artifact
-          # 复制编译产物+模块文件（严格对标你的仓库结构）
           cp -f ./module/build/libzygisk.so ./artifact/
           cp -f ./module.prop ./artifact/
           cp -f ./customize.sh ./artifact/
           cp -f ./sepolicy.rule ./artifact/ 2>/dev/null
-          # 打包为Magisk可刷入ZIP
           cd ./artifact
-          zip -9r ../Zygisk-SGameHook_$(date +%Y%m%d).zip *
+          zip -9r ../Zygisk-SGameHook_$(date +%Y%m%d_%H%M%S).zip *
           cd ..
-          echo "✅ Build Success! File: $(ls *.zip)"
+          echo "✅ Build Success! Module File: $(ls *.zip)"
 
-      # 6. 上传产物
-      - name: Upload Artifact
+      - name: Upload Final Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Zygisk-SGameHook-Arm64
+          name: Zygisk-SGameHook-Arm64-Module
           path: ./*.zip
